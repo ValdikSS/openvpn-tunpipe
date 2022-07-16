@@ -47,6 +47,8 @@ void script_security_set(int level);
 /** Instead of returning 1/0 for success/fail,
  * return exit code when between 0 and 255 and -1 otherwise */
 #define S_EXITCODE  (1<<2)
+#define S_NOWAIT    (1<<3)
+#define S_SETPGRP   (1<<4)
 
 /* wrapper around the execve() call */
 int openvpn_popen(const struct argv *a,  const struct env_set *es);
