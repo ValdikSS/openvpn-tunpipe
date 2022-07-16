@@ -372,6 +372,10 @@ dev_type_enum(const char *dev, const char *dev_type)
     {
         return DEV_TYPE_NULL;
     }
+    else if (dev && *dev == '|')
+    {
+        return DEV_TYPE_TUN;
+    }
     else
     {
         return DEV_TYPE_UNDEF;
@@ -752,6 +756,11 @@ init_tun(const char *dev,        /* --dev option */
 
     tt->type = dev_type_enum(dev, dev_type);
     tt->topology = topology;
+
+    if (dev && *dev == '|')
+    {
+        tt->is_pipe = true;
+    }
 
     if (ifconfig_local_parm && ifconfig_remote_netmask_parm)
     {
@@ -1626,6 +1635,69 @@ open_null(struct tuntap *tt)
     tt->actual_name = string_alloc("null", NULL);
 }
 
+static void
+set_vpnc_vars (struct env_set *es, struct tuntap *tt)
+{
+    struct gc_arena gc = gc_new();
+
+    setenv_str(es, "INTERNAL_IP4_ADDRESS", (char*)print_in_addr_t(tt->local, 0, &gc));
+    setenv_int(es, "INTERNAL_IP4_MTU", tt->mtu);
+
+    if (tt->did_ifconfig_ipv6_setup)
+    {
+        const char *ifconfig_ipv6_local = print_in6_addr(tt->local_ipv6, 0, &gc);
+        struct buffer out6 = alloc_buf_gc(64, &gc);
+
+        buf_printf(&out6, "%s/%d", ifconfig_ipv6_local, tt->netbits_ipv6);
+        setenv_str(es, "INTERNAL_IP6_NETMASK", (char*)buf_bptr(&out6));
+    }
+
+    gc_free (&gc);
+}
+
+static void
+open_pipe (const char *dev, struct tuntap *tt)
+{
+    struct argv argv;
+    struct env_set *es;
+    int fds[2], pid;
+
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, fds) == -1)
+    {
+        msg(M_FATAL | M_ERRNO, "ERROR: socketpair call failed");
+    }
+
+    tt->fd = fds[0];
+    tt->actual_name = string_alloc("pipe", NULL);
+
+    set_nonblock(tt->fd);
+    set_cloexec(tt->fd);
+
+    es = env_set_create(NULL);
+    setenv_int(es, "VPNFD", fds[1]);
+    set_vpnc_vars(es, tt);
+
+    argv = argv_new();
+    /* dev looks like: "|/path/to/program <args...>" */
+    argv_printf(&argv, "/bin/sh -c %s", &dev[1]);
+    pid = openvpn_execve_check(&argv, es, M_ERR | S_SCRIPT | S_NOWAIT | S_SETPGRP,
+                               "ERROR: Unable to execute TUN script");
+    argv_free(&argv);
+    env_set_destroy(es);
+    close(fds[1]);
+
+    /*
+    * This doesn't detect errors in the subprocess, but hopefully we'll notice
+    * if the other side of the socketpair gets closed.
+    */
+    if (pid <= 0)
+    {
+        msg(M_FATAL, "ERROR: unable to start subprocess");
+    }
+    tt->pipe_pid = (pid_t)pid;
+}
+
+
 
 #if defined (TARGET_OPENBSD) || (defined(TARGET_DARWIN) && HAVE_NET_IF_UTUN_H)
 
@@ -1733,7 +1805,11 @@ open_tun_generic(const char *dev, const char *dev_type, const char *dev_node,
     char dynamic_name[256];
     bool dynamic_opened = false;
 
-    if (tt->type == DEV_TYPE_NULL)
+    if (tt->is_pipe)
+    {
+        open_pipe (dev, tt);
+    }
+    else if (tt->type == DEV_TYPE_NULL)
     {
         open_null(tt);
     }
@@ -1842,6 +1918,10 @@ close_tun_generic(struct tuntap *tt)
     }
 
     free(tt->actual_name);
+    if (tt->pipe_pid)
+    {
+        kill (-tt->pipe_pid, SIGHUP);
+    }
     clear_tuntap(tt);
 }
 #endif /* !_WIN32 */
@@ -1949,11 +2029,15 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 {
     struct ifreq ifr;
 
-    /*
-     * We handle --dev null specially, we do not open /dev/null for this.
-     */
-    if (tt->type == DEV_TYPE_NULL)
+    if (tt->is_pipe)
     {
+        open_pipe (dev, tt);
+    }
+    else if (tt->type == DEV_TYPE_NULL)
+    {
+        /*
+        * We handle --dev null specially, we do not open /dev/null for this.
+        */
         open_null(tt);
     }
     else
@@ -2189,7 +2273,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 {
     ASSERT(tt);
 
-    if (tt->type != DEV_TYPE_NULL)
+    if (tt->type != DEV_TYPE_NULL && !tt->is_pipe)
     {
         if (tt->did_ifconfig_setup)
         {
@@ -2245,7 +2329,12 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
      */
     CLEAR(ifr);
 
-    if (tt->type == DEV_TYPE_NULL)
+    if (tt->is_pipe)
+    {
+        open_pipe (dev, tt);
+        return;
+    }
+    else if (tt->type == DEV_TYPE_NULL)
     {
         open_null(tt);
         return;
@@ -2526,6 +2615,11 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
     solaris_close_tun(tt);
 
     free(tt->actual_name);
+
+    if (tt->pipe_pid)
+    {
+        kill (-tt->pipe_pid, SIGHUP);
+    }
 
     clear_tuntap(tt);
     free(tt);
@@ -3282,6 +3376,12 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
     char tunname[256];
     char dynamic_name[20];
     const char *p;
+
+    if (tt->is_pipe)
+    {
+        open_pipe (dev, tt);
+        return;
+    }
 
     if (tt->type == DEV_TYPE_NULL)
     {
@@ -6594,7 +6694,12 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 
     msg( M_INFO, "open_tun");
 
-    if (tt->type == DEV_TYPE_NULL)
+    if (tt->is_pipe)
+    {
+        open_pipe (dev, tt);
+        return;
+    }
+    else if (tt->type == DEV_TYPE_NULL)
     {
         open_null(tt);
         return;
@@ -6713,6 +6818,12 @@ void
 close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 {
     ASSERT(tt);
+
+    if (tt->pipe_pid)
+    {
+        kill (-tt->pipe_pid, SIGHUP);
+        return;
+    }
 
     struct gc_arena gc = gc_new();
 

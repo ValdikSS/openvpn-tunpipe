@@ -162,6 +162,8 @@ struct tuntap
 #define TUNNEL_TOPOLOGY(tt) ((tt) ? ((tt)->topology) : TOP_UNDEF)
     int topology; /* one of the TOP_x values */
 
+    bool is_pipe;
+    pid_t pipe_pid;
     bool did_ifconfig_setup;
     bool did_ifconfig_ipv6_setup;
 

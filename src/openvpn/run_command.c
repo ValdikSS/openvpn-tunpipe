@@ -217,6 +217,11 @@ openvpn_execve_check(const struct argv *a, const struct env_set *es, const unsig
             goto done;
         }
     }
+    else if (flags & S_NOWAIT)
+    {
+        ret = stat;
+        goto done;
+    }
     else if (platform_system_ok(stat))
     {
         ret = true;

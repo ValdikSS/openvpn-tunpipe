@@ -1607,7 +1607,9 @@ do_route(const struct options *options,
          struct env_set *es,
          openvpn_net_ctx_t *ctx)
 {
-    if (!options->route_noexec && ( route_list || route_ipv6_list ) )
+      if (!options->route_noexec &&
+          !tt->is_pipe &&
+          ( route_list || route_ipv6_list ) )
     {
         add_routes(route_list, route_ipv6_list, tt, ROUTE_OPTION_FLAGS(options),
                    es, ctx);
@@ -1724,12 +1726,12 @@ do_open_tun(struct context *c)
 
     /* parse and resolve the route option list */
     ASSERT(c->c2.link_socket);
-    if (c->options.routes && c->c1.route_list)
+    if (c->options.routes && c->c1.route_list && !c->c1.tuntap->is_pipe)
     {
         do_init_route_list(&c->options, c->c1.route_list,
                            &c->c2.link_socket->info, c->c2.es, &c->net_ctx);
     }
-    if (c->options.routes_ipv6 && c->c1.route_ipv6_list)
+    if (c->options.routes_ipv6 && c->c1.route_ipv6_list && !c->c1.tuntap->is_pipe)
     {
         do_init_route_ipv6_list(&c->options, c->c1.route_ipv6_list,
                                 &c->c2.link_socket->info, c->c2.es,
@@ -1739,6 +1741,7 @@ do_open_tun(struct context *c)
     /* do ifconfig */
     c->c1.tuntap->mtu = c->c2.frame.tun_mtu;
     if (!c->options.ifconfig_noexec
+        && !c->c1.tuntap->is_pipe
         && ifconfig_order() == IFCONFIG_BEFORE_TUN_OPEN)
     {
         /* guess actual tun/tap unit number that will be returned
@@ -1751,7 +1754,8 @@ do_open_tun(struct context *c)
     }
 
     /* possibly add routes */
-    if (route_order() == ROUTE_BEFORE_TUN)
+    if (route_order() == ROUTE_BEFORE_TUN
+        && !c->c1.tuntap->is_pipe)
     {
         /* Ignore route_delay, would cause ROUTE_BEFORE_TUN to be ignored */
         do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
@@ -1766,7 +1770,8 @@ do_open_tun(struct context *c)
              c->c1.tuntap);
 
     /* set the hardware address */
-    if (c->options.lladdr)
+    if (c->options.lladdr
+        && !c->c1.tuntap->is_pipe)
     {
         set_lladdr(&c->net_ctx, c->c1.tuntap->actual_name, c->options.lladdr,
                    c->c2.es);
@@ -1774,6 +1779,7 @@ do_open_tun(struct context *c)
 
     /* do ifconfig */
     if (!c->options.ifconfig_noexec
+        && !c->c1.tuntap->is_pipe
         && ifconfig_order() == IFCONFIG_AFTER_TUN_OPEN)
     {
         do_ifconfig(c->c1.tuntap, c->c1.tuntap->actual_name,

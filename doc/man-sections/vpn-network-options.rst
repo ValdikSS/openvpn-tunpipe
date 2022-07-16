@@ -50,6 +50,15 @@ routing.
   :code:`null` or an arbitrary name string (:code:`X` can be omitted for
   a dynamic device.)
 
+  The traffic could also pass without TUN/TAP to and from openvpn over
+  a socketpair to external process when :code:`|/bin/programX` syntax is
+  used.
+  This is an alternative to using a tun/tap interface to pass traffic
+  to and from the OS kernel; unlike tun/tap it does not require any
+  special privileges. The path must start with a `|` (pipe) character.
+  This works with either :code:`tun` or :code:`tap`.
+  If left unspecified, it will default to tun.
+
   See examples section below for an example on setting up a TUN device.
 
   You must use either tun devices on both ends of the connection or tap
