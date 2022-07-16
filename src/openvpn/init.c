@@ -1737,6 +1737,7 @@ do_open_tun(struct context *c)
     }
 
     /* do ifconfig */
+    c->c1.tuntap->mtu = c->c2.frame.tun_mtu;
     if (!c->options.ifconfig_noexec
         && ifconfig_order() == IFCONFIG_BEFORE_TUN_OPEN)
     {
@@ -1746,8 +1747,7 @@ do_open_tun(struct context *c)
                                              c->options.dev_type,
                                              c->options.dev_node,
                                              &gc);
-        do_ifconfig(c->c1.tuntap, guess, c->c2.frame.tun_mtu, c->c2.es,
-                    &c->net_ctx);
+        do_ifconfig(c->c1.tuntap, guess, c->c2.es, &c->net_ctx);
     }
 
     /* possibly add routes */
@@ -1777,7 +1777,7 @@ do_open_tun(struct context *c)
         && ifconfig_order() == IFCONFIG_AFTER_TUN_OPEN)
     {
         do_ifconfig(c->c1.tuntap, c->c1.tuntap->actual_name,
-                    c->c2.frame.tun_mtu, c->c2.es, &c->net_ctx);
+                    c->c2.es, &c->net_ctx);
     }
 
     /* run the up script */

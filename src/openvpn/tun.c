@@ -1572,9 +1572,10 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 
 /* execute the ifconfig command through the shell */
 void
-do_ifconfig(struct tuntap *tt, const char *ifname, int tun_mtu,
+do_ifconfig(struct tuntap *tt, const char *ifname,
             const struct env_set *es, openvpn_net_ctx_t *ctx)
 {
+    int tun_mtu = tt->mtu;
     msg(D_LOW, "do_ifconfig, ipv4=%d, ipv6=%d", tt->did_ifconfig_setup,
         tt->did_ifconfig_ipv6_setup);
 
